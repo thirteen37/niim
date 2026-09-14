@@ -16,6 +16,19 @@ private let sentence = "The quick brown fox jumps over the lazy dog"
     #expect(layout.lines.map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ") == sentence)
 }
 
+@Test func nudgeAdjustsAutoFitSize() {
+    let auto = TextLayout.fit("Hello", style: TextStyle(), in: box).size
+    #expect(TextLayout.fit("Hello", style: TextStyle(sizeAdjust: -3), in: box).size == auto - 3)
+    #expect(TextLayout.fit("Hello", style: TextStyle(sizeAdjust: 5), in: box).size == auto + 5)
+    #expect(TextLayout.fit("Hello", style: TextStyle(sizeAdjust: -500), in: box).size == 4)
+}
+
+@Test func nudgedUpTextStaysInItsSection() {
+    let bmp = Bitmap.label(["W W W W", ""], spec: LabelSpec(lengthMm: 30, widthMm: 15), orientation: .portrait, style: TextStyle(sizeAdjust: 40), margin: 12)
+    let inked = { (ys: Range<Int>) in ys.contains { y in (0..<bmp.width).contains { bmp[$0, y] } } }
+    #expect(inked(0..<120) && !inked(120..<240))
+}
+
 @Test func onlyManualLineBreaksWhenWrapIsOff() {
     #expect(TextLayout.fit(sentence, style: TextStyle(wrap: false), in: box).lines == [sentence])
     #expect(TextLayout.fit("A\nB", style: TextStyle(wrap: false), in: box).lines.count == 2)

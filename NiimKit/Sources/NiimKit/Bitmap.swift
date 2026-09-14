@@ -48,6 +48,7 @@ public struct Bitmap: Equatable, Sendable {
             let layout = TextLayout.fit(text, style: style, in: box.size)
             guard let frame = layout.frame else { continue }
             ctx.saveGState()
+            ctx.clip(to: section)  // nudged-up text must not spill into the next section
             ctx.translateBy(x: box.minX, y: box.midY - layout.height / 2)
             CTFrameDraw(frame, ctx)
             ctx.restoreGState()

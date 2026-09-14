@@ -18,6 +18,7 @@ struct ContentView: View {
     @State private var orientation = LabelOrientation.landscape
     @State private var alignment = LabelAlignment.center
     @State private var wrap = true
+    @State private var sizeAdjust = 0.0
     @State private var choice = FontChoice()
     @State private var font: CTFontDescriptor?
     @State private var icons: [Icon] = []
@@ -69,6 +70,9 @@ struct ContentView: View {
                     }
                 }
                 Toggle("Wrap automatically", isOn: $wrap)
+                Stepper(value: $sizeAdjust, in: -30...30) {
+                    LabeledContent("Size", value: sizeAdjust == 0 ? "Auto" : "Auto \(sizeAdjust > 0 ? "+" : "−")\(Int(abs(sizeAdjust))) pt")
+                }
                 Picker("Alignment", selection: $alignment) {
                     Image(systemName: "text.alignleft").accessibilityLabel("Left").tag(LabelAlignment.left)
                     Image(systemName: "text.aligncenter").accessibilityLabel("Center").tag(LabelAlignment.center)
@@ -135,7 +139,7 @@ struct ContentView: View {
     }
 
     private var style: TextStyle {
-        TextStyle(font: font ?? systemFont(family: choice.family, bold: choice.bold), fallbacks: iconFonts, emoji: emoji, alignment: alignment, wrap: wrap)
+        TextStyle(font: font ?? systemFont(family: choice.family, bold: choice.bold), fallbacks: iconFonts, emoji: emoji, alignment: alignment, wrap: wrap, sizeAdjust: sizeAdjust)
     }
 
     private func bitmap(_ label: LabelSpec) -> Bitmap {

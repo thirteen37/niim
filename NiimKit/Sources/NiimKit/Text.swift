@@ -32,15 +32,17 @@ public struct TextStyle {
     public var emoji: CTFontDescriptor?  // forced for emoji; mono Noto Emoji thresholds far better than color emoji
     public var alignment: LabelAlignment
     public var wrap: Bool  // false: only the user's own line breaks; text shrinks until the longest line fits
+    public var sizeAdjust: CGFloat  // points added to the auto-fit size
 
     public init(font: CTFontDescriptor = CTFontDescriptorCreateWithNameAndSize("Helvetica-Bold" as CFString, 0),
                 fallbacks: [CTFontDescriptor] = [], emoji: CTFontDescriptor? = nil, alignment: LabelAlignment = .center,
-                wrap: Bool = true) {
+                wrap: Bool = true, sizeAdjust: CGFloat = 0) {
         self.font = font
         self.fallbacks = fallbacks
         self.emoji = emoji
         self.alignment = alignment
         self.wrap = wrap
+        self.sizeAdjust = sizeAdjust
     }
 
     func attributed(_ text: String, size: CGFloat) -> NSAttributedString {
@@ -78,9 +80,17 @@ public struct TextLayout {
     let frame: CTFrame?
     let height: CGFloat
 
+    /// Auto-fit size plus `style.sizeAdjust` (never below 4 pt).
+    public static func fit(_ text: String, style: TextStyle, in box: CGSize) -> TextLayout {
+        let auto = autoFit(text, style: style, in: box)
+        guard style.sizeAdjust != 0 else { return auto }
+        // ponytail: nudged text skips the fit checks, so it may re-wrap or overflow; Bitmap.label clips each section
+        return layout(text, style, max(4, auto.size + style.sizeAdjust), box, strict: false)!
+    }
+
     /// Largest font size whose text fits `box`, wrapping only between words (or not at all if `style.wrap` is off).
     /// ponytail: binary search assumes fit is monotonic in size; word wrapping makes that approximately true.
-    public static func fit(_ text: String, style: TextStyle, in box: CGSize) -> TextLayout {
+    static func autoFit(_ text: String, style: TextStyle, in box: CGSize) -> TextLayout {
         guard var best = layout(text, style, 4, box, strict: true) else {
             return layout(text, style, 4, box, strict: false)!  // too long even at 4pt: break words, let it clip
         }
