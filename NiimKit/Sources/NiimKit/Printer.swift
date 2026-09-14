@@ -40,7 +40,7 @@ public final class Printer: NSObject {
         }
     }
 
-    public func printLabel(_ bmp: Bitmap, density: Int = 2) async throws {
+    public func printLabel(_ bmp: Bitmap, quantity: Int = 1, density: Int = 2) async throws {
         guard let peripheral, let char else { throw NiimError("Not connected") }
         isBusy = true
         defer { isBusy = false }
@@ -51,17 +51,17 @@ public final class Printer: NSObject {
         _ = try await send(0x20)  // print clear
         _ = try await send(0x03)  // page start
         _ = try await send(0x13, u16(bmp.height) + u16(bmp.width))
-        _ = try await send(0x15, u16(1))  // quantity
+        _ = try await send(0x15, u16(quantity))  // copies of this page
         for pkt in bmp.rowPackets() {
             // ponytail: fixed 10ms pacing like niimbluelib; use canSendWriteWithoutResponse if rows drop
             peripheral.writeValue(pkt, for: char, type: .withoutResponse)
             try await Task.sleep(for: .milliseconds(10))
         }
         _ = try await send(0xE3)  // page end
-        for _ in 0..<100 {  // status: page u16, print %, feed %, error @8
+        for _ in 0..<100 * quantity {  // ~30 s per copy; status: page u16 (copies done), print %, feed %, error @8
             let s = [UInt8](try await send(0xA3))
             if s.count == 10, s[8] != 0 { throw NiimError("Printer error 0x\(String(s[8], radix: 16))") }
-            if s.count >= 4, Int(s[0]) << 8 | Int(s[1]) >= 1, s[2] == 100, s[3] == 100 { break }
+            if s.count >= 4, Int(s[0]) << 8 | Int(s[1]) >= quantity, s[2] == 100, s[3] == 100 { break }
             try await Task.sleep(for: .milliseconds(300))
         }
         _ = try await send(0xF3)  // print end
