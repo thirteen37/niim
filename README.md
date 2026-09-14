@@ -1,0 +1,124 @@
+# Niim
+
+A native iPhone and Mac app for the **Niimbot D110** label printer, talking to it directly over Bluetooth LE instead of through the official app.
+
+Not affiliated with NIIMBOT.
+
+## Features
+
+- **Connects on launch.** Reads the loaded roll's RFID tag and looks up its size in Niimbot's public label database, so there's nothing to configure.
+- **Text that fits.** Each section's text is sized as large as it fits, wrapping between words (or only at your own line breaks). Nudge the size up or down, and align left, center or right.
+- **Rich text.** Bold, italic and underline per word, with the B / I / U buttons or ⌘B / ⌘I / ⌘U. Fonts without a real bold or italic face get a synthesized one.
+- **Fonts.** Any system font or Google Fonts family (downloaded on first use and cached), with recently used fonts at the top of the picker.
+- **Icons and emoji.** A searchable Font Awesome 7 Free icon picker. Emoji print with the monochrome Noto Emoji font, which comes out far cleaner on a thermal printer than color emoji.
+- **Layouts.** Landscape or portrait, split into 1–6 sections that repeat one text (n-up) or each get their own.
+- **Copies,** with a live preview of exactly what will print.
+
+## Requirements
+
+- macOS 26 or iOS 26 (the app uses SwiftUI's rich text editor)
+- Xcode 26
+- [XcodeGen](https://github.com/yonaskolb/XcodeGen): `brew install xcodegen`
+- An Apple developer team to sign with
+- For the Python prototype only: [uv](https://docs.astral.sh/uv/)
+
+## Setup
+
+The signing team isn't in the repo. Create `Config/Local.xcconfig` (it's ignored by git):
+
+```
+DEVELOPMENT_TEAM = YOUR_TEAM_ID
+```
+
+`Niim.xcodeproj` is generated from `project.yml` and also isn't committed.
+
+## Build and run
+
+| Command | What it does |
+|---|---|
+| `make deploy` | Release build (universal), replaces `/Applications/Niim.app` and launches it |
+| `make release` | Release build only, into `build/` |
+| `make dmg` | Release build packaged as `build/Niim-<version>.dmg`, with an Applications shortcut to drag onto |
+| `make publish` | Builds the DMG, tags `v<version>`, pushes, and creates a GitHub release with the DMG attached |
+| `make test` | Runs the `NiimKit` unit tests |
+| `make clean` | Deletes `build/` |
+
+The version comes from `MARKETING_VERSION` in `project.yml`; bump it before `make publish`. Builds are signed with your Apple Development identity, so the DMG runs on your own Macs. Giving it to anyone else needs a Developer ID-signed, notarized build.
+
+**iPhone:** run `xcodegen generate`, open `Niim.xcodeproj`, pick your iPhone and press Run. The phone needs Developer Mode on.
+
+Allow Bluetooth when asked. The printer can only hold one connection, so disconnect it from the official app first.
+
+## Python prototype
+
+`niim.py` is the script the protocol was worked out with. It's a single-file uv script:
+
+```sh
+./niim.py info    # printer model, firmware, battery, serial, and the loaded roll's RFID tag
+./niim.py test    # prints a 30 mm test label
+./niim.py calib   # prints 1 mm rulers at both ends, to measure clipping
+```
+
+macOS grants Bluetooth to the app that launched the process. Run it from a terminal app that has Bluetooth permission in System Settings → Privacy & Security, and not from inside a detached session such as a background multiplexer.
+
+## Project layout
+
+| Path | Contents |
+|---|---|
+| `NiimKit/` | Swift package shared by both apps: packet codec, bitmap rows, RFID parsing, label lookup, text layout, fonts, and the CoreBluetooth `Printer` |
+| `App/` | SwiftUI app: `ContentView.swift` (preview, text and layout tabs), `Pickers.swift` (font and icon pickers) |
+| `project.yml` | XcodeGen spec for the iOS + macOS app target |
+| `Config/` | `Signing.xcconfig`, which includes your untracked `Local.xcconfig` |
+| `tools/make-icon.swift` | Regenerates the app icon from `tools/niim-logo.png` |
+| `niim.py` | Python/bleak protocol prototype |
+| `Makefile` | Release build and deploy |
+
+## D110 protocol
+
+Based on [niimbluelib](https://github.com/MultiMote/niimbluelib)'s `D110PrintTask`, and verified on a D110 (model ID 2304).
+
+**Connection.** BLE service `e7810a71-73ae-499d-8c15-faa9aef0c3f2`, one characteristic with notify and write-without-response. Notifications can split or merge frames, so reassemble them.
+
+**Frame.** `55 55 cmd len data… checksum aa aa`, where the checksum is the XOR of `cmd`, `len` and every data byte. Commands with no arguments send the payload `01`. Most requests get a reply with a fixed response command; the printer also sends unsolicited `D3` check-line packets during a print, which can be ignored.
+
+**Print sequence.**
+
+| Step | Request | Data | Reply |
+|---|---|---|---|
+| Connect | `C1` | `01` | `C2` |
+| Density | `21` | 1–3 | `31` |
+| Label type | `23` | `01` (gaps) | `33` |
+| Print start | `01` | `01` | `02` |
+| Print clear | `20` | `01` | `30` |
+| Page start | `03` | `01` | `04` |
+| Page size | `13` | rows u16, columns u16 | `14` |
+| Copies | `15` | u16 | `16` |
+| Rows | `85` / `84` | see below | none |
+| Page end | `E3` | `01` | `E4` |
+| Status (poll) | `A3` | `01` | `B3`: page u16, print %, feed %, error at byte 8 |
+| Print end | `F3` | `01` | `F4` |
+
+Poll status every 300 ms until the page counter equals the number of copies and both percentages are 100. All integers are big-endian.
+
+**Rows.** The head is 96 dots (12 mm at 203 dpi, so 8 px/mm), and each row is 12 bytes, most significant bit first, 1 = black. A bitmap row is `85` with the row number (u16), the black-pixel count of each third of the head (3 bytes), a repeat count, and the 12 bytes. A blank row is `84` with the row number and repeat count. Identical consecutive rows are merged with the repeat count.
+
+**Orientation.** Rows run along the feed. A label designed landscape (long side horizontal) is rotated 90° clockwise before sending; a portrait design with the start end at the top already matches.
+
+**Info.** `40` + info type replies with `40` + type: `08` model ID, `09` firmware, `0A` battery, `0B` serial. `1A` reads the roll's RFID: 8-byte UUID, length-prefixed barcode, length-prefixed serial, total labels u16, used u16, label type.
+
+**Label size.** The RFID tag has no dimensions. Look them up by barcode: `POST https://print.niimbot.com/api/template/getCloudTemplateByOneCode` with body `{"oneCode": "<barcode>"}` and header `niimbot-user-agent: AppVersionName/999.0.0`. `data.width` and `data.height` are in mm.
+
+**Calibration.** The D110 loses about 1 mm at the start of each label, so the renderer keeps a 12 px margin.
+
+## Gotchas
+
+- **Emoji:** CoreText substitutes Apple Color Emoji for any sequence containing U+FE0F, even when another font is set explicitly. Strip U+FE0F before assigning Noto Emoji.
+- **macOS sheets:** a sheet sizes itself to its content, and a `List` has no ideal height, so it collapses. Give the sheet an ideal size.
+- **Swift Testing:** concurrent `CTFontDescriptorCreateCopyWithSymbolicTraits` calls from the parallel test runner hang in the font service, so `NiimKit` serializes them with a lock.
+- **Icon source:** CoreGraphics treats an untagged palette PNG as Display P3 and oversaturates it when converting to sRGB; `make-icon.swift` reads the raw palette instead.
+
+## Credits
+
+- Protocol: [MultiMote/niimbluelib](https://github.com/MultiMote/niimbluelib)
+- Icons: [Font Awesome Free](https://fontawesome.com/license/free) (icons CC BY 4.0, fonts SIL OFL 1.1), downloaded at runtime
+- Fonts: [Google Fonts](https://fonts.google.com), including [Noto Emoji](https://fonts.google.com/noto/specimen/Noto+Emoji), downloaded at runtime
