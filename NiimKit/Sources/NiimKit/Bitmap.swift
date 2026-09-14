@@ -27,10 +27,12 @@ public struct Bitmap: Equatable, Sendable {
         return out
     }
 
-    /// Centered text on a landscape label. The D110 loses ~1 mm at the start of the feed
-    /// (calibrated 2026-09-14), so keep margin ≥ 8 px.
-    public static func landscape(_ text: String, spec: LabelSpec, fontSize: CGFloat, margin: Int = 12) -> Bitmap {
-        let w = spec.rows, h = printheadPx
+    /// The label as it reads in `orientation`, split into equal sections along its length (first section
+    /// at the start end), each with auto-fit, vertically centered text. Pass the same text n times for n-up.
+    /// The D110 loses ~1 mm at the start of the feed (calibrated 2026-09-14), so keep margin ≥ 8 px.
+    public static func label(_ texts: [String], spec: LabelSpec, orientation: LabelOrientation, style: TextStyle, margin: Int = 12) -> Bitmap {
+        let n = max(texts.count, 1), len = spec.rows, head = printheadPx
+        let (w, h) = orientation == .landscape ? (len, head) : (head, len)
         var out = Bitmap(width: w, height: h)
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w,
                                   space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)
@@ -38,20 +40,18 @@ public struct Bitmap: Equatable, Sendable {
         ctx.setFillColor(gray: 1, alpha: 1)
         ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
 
-        var align = CTTextAlignment.center
-        let style = withUnsafePointer(to: &align) {
-            CTParagraphStyleCreate([CTParagraphStyleSetting(spec: .alignment, valueSize: MemoryLayout<CTTextAlignment>.size, value: $0)], 1)
+        for (i, text) in texts.enumerated() {
+            let section = orientation == .landscape
+                ? CGRect(x: len * i / n, y: 0, width: len / n, height: head)
+                : CGRect(x: 0, y: len - (i + 1) * len / n, width: head, height: len / n)  // CG is y-up; section 0 on top
+            let box = section.insetBy(dx: CGFloat(margin), dy: CGFloat(margin))
+            let layout = TextLayout.fit(text, style: style, in: box.size)
+            guard let frame = layout.frame else { continue }
+            ctx.saveGState()
+            ctx.translateBy(x: box.minX, y: box.midY - layout.height / 2)
+            CTFrameDraw(frame, ctx)
+            ctx.restoreGState()
         }
-        let attrs: [String: Any] = [
-            kCTFontAttributeName as String: CTFontCreateWithName("Helvetica-Bold" as CFString, fontSize, nil),
-            kCTParagraphStyleAttributeName as String: style,
-            kCTForegroundColorAttributeName as String: CGColor(gray: 0, alpha: 1),
-        ]
-        let setter = CTFramesetterCreateWithAttributedString(NSAttributedString(string: text, attributes: attrs.reduce(into: [:]) { $0[NSAttributedString.Key($1.key)] = $1.value }))
-        let box = CGRect(x: 0, y: 0, width: w, height: h).insetBy(dx: CGFloat(margin), dy: CGFloat(margin))
-        let fit = CTFramesetterSuggestFrameSizeWithConstraints(setter, CFRange(), nil, box.size, nil)
-        let rect = CGRect(x: box.minX, y: box.midY - fit.height / 2, width: box.width, height: fit.height).intersection(box)
-        CTFrameDraw(CTFramesetterCreateFrame(setter, CFRange(), CGPath(rect: rect, transform: nil), nil), ctx)
 
         guard let data = ctx.data?.assumingMemoryBound(to: UInt8.self) else { return out }
         for i in 0..<w * h { out.pixels[i] = data[i] < 128 }  // buffer row 0 is the top

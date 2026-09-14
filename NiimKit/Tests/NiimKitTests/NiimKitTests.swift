@@ -42,7 +42,7 @@ private func hex(_ s: String) -> Data {
 }
 
 @Test func rendersTextInsideStartMargin() {
-    let bmp = Bitmap.landscape("HI", spec: LabelSpec(lengthMm: 30, widthMm: 15), fontSize: 40, margin: 12)
+    let bmp = Bitmap.label(["HI"], spec: LabelSpec(lengthMm: 30, widthMm: 15), orientation: .landscape, style: TextStyle(), margin: 12)
     #expect(bmp.width == 240 && bmp.height == 96)
     #expect(bmp.pixels.contains(true))
     #expect((0..<96).allSatisfy { y in (0..<12).allSatisfy { !bmp[$0, y] } })
