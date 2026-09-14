@@ -1,0 +1,29 @@
+name: Niim
+options:
+  bundleIdPrefix: io.lyx
+  deploymentTarget:
+    iOS: "17.0"
+    macOS: "14.0"
+packages:
+  NiimKit:
+    path: NiimKit
+targets:
+  Niim:
+    type: application
+    supportedDestinations: [iOS, macOS]
+    sources: [App]
+    dependencies:
+      - package: NiimKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.lyx.niim
+        CODE_SIGN_STYLE: Automatic
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription: Niim connects to your Niimbot label printer over Bluetooth.
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        # macOS sandbox (ignored on iOS)
+        ENABLE_APP_SANDBOX: YES
+        ENABLE_RESOURCE_ACCESS_BLUETOOTH: YES
+        ENABLE_OUTGOING_NETWORK_CONNECTIONS: YES
