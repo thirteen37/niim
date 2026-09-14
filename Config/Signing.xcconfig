@@ -1,0 +1,3 @@
+// Signing team comes from Config/Local.xcconfig, which is untracked. Create it with:
+//   DEVELOPMENT_TEAM = <your Apple team ID>
+#include? "Local.xcconfig"

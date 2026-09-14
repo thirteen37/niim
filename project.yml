@@ -14,6 +14,9 @@ targets:
     sources: [App]
     dependencies:
       - package: NiimKit
+    configFiles:  # signing team from untracked Config/Local.xcconfig
+      Debug: Config/Signing.xcconfig
+      Release: Config/Signing.xcconfig
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.lyx.niim
