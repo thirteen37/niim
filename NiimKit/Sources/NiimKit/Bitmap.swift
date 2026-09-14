@@ -31,7 +31,11 @@ public struct Bitmap: Equatable, Sendable {
     /// at the start end), each with auto-fit, vertically centered text. Pass the same text n times for n-up.
     /// The D110 loses ~1 mm at the start of the feed (calibrated 2026-09-14), so keep margin ≥ 8 px.
     public static func label(_ texts: [String], spec: LabelSpec, orientation: LabelOrientation, style: TextStyle, margin: Int = 12) -> Bitmap {
-        let n = max(texts.count, 1), len = spec.rows, head = printheadPx
+        label(texts.map { [TextRun($0)] }, spec: spec, orientation: orientation, style: style, margin: margin)
+    }
+
+    public static func label(_ sections: [[TextRun]], spec: LabelSpec, orientation: LabelOrientation, style: TextStyle, margin: Int = 12) -> Bitmap {
+        let n = max(sections.count, 1), len = spec.rows, head = printheadPx
         let (w, h) = orientation == .landscape ? (len, head) : (head, len)
         var out = Bitmap(width: w, height: h)
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w,
@@ -40,12 +44,12 @@ public struct Bitmap: Equatable, Sendable {
         ctx.setFillColor(gray: 1, alpha: 1)
         ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
 
-        for (i, text) in texts.enumerated() {
+        for (i, spans) in sections.enumerated() {
             let section = orientation == .landscape
                 ? CGRect(x: len * i / n, y: 0, width: len / n, height: head)
                 : CGRect(x: 0, y: len - (i + 1) * len / n, width: head, height: len / n)  // CG is y-up; section 0 on top
             let box = section.insetBy(dx: CGFloat(margin), dy: CGFloat(margin))
-            let layout = TextLayout.fit(text, style: style, in: box.size)
+            let layout = TextLayout.fit(spans, style: style, in: box.size)
             guard let frame = layout.frame else { continue }
             ctx.saveGState()
             ctx.clip(to: section)  // nudged-up text must not spill into the next section

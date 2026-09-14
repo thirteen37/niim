@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreText
 import Foundation
 import Testing
 @testable import NiimKit
@@ -14,6 +15,36 @@ private let sentence = "The quick brown fox jumps over the lazy dog"
     let layout = TextLayout.fit(sentence, style: TextStyle(), in: box)
     #expect(layout.lines.count > 1)
     #expect(layout.lines.map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ") == sentence)
+}
+
+private func font(_ s: NSAttributedString, at i: Int) -> CTFont {
+    s.attribute(.init(kCTFontAttributeName as String), at: i, effectiveRange: nil) as! CTFont
+}
+
+@Test func spansUseRealFacesAndUnderline() {
+    let s = TextStyle(faces: .system(family: "Helvetica"))
+        .attributed([TextRun("a", bold: true), TextRun("b", italic: true), TextRun("c", underline: true), TextRun("d")], size: 20)
+    #expect(CTFontGetSymbolicTraits(font(s, at: 0)).contains(.traitBold))
+    #expect(CTFontGetSymbolicTraits(font(s, at: 1)).contains(.traitItalic))
+    #expect(s.attribute(.init(kCTUnderlineStyleAttributeName as String), at: 2, effectiveRange: nil) != nil)
+    #expect(s.attribute(.init(kCTUnderlineStyleAttributeName as String), at: 3, effectiveRange: nil) == nil)
+    #expect(s.attribute(.init(kCTStrokeWidthAttributeName as String), at: 0, effectiveRange: nil) == nil)  // real bold, no synth
+}
+
+@Test func synthesizesMissingBoldAndItalic() {
+    let s = TextStyle(faces: .system(family: "Zapfino")).attributed([TextRun("a", bold: true), TextRun("b", italic: true)], size: 20)  // no bold/italic faces
+    #expect(((s.attribute(.init(kCTStrokeWidthAttributeName as String), at: 0, effectiveRange: nil) as? NSNumber)?.doubleValue ?? 0) < 0)
+    #expect(CTFontGetMatrix(font(s, at: 1)).c != 0)
+}
+
+@Test func manualLineBreaksCountAcrossTextRuns() {
+    let spans = [TextRun("The quick brown fox "), TextRun("jumps over the lazy dog", bold: true)]
+    #expect(TextLayout.fit(spans, style: TextStyle(wrap: false), in: box).lines.count == 1)
+}
+
+@Test func googleCSSURLsForStyles() {
+    #expect(GoogleFonts.cssURL(family: "Roboto", bold: false, italic: true).absoluteString == "https://fonts.googleapis.com/css2?family=Roboto:ital@1")
+    #expect(GoogleFonts.cssURL(family: "Roboto", bold: true, italic: true).absoluteString == "https://fonts.googleapis.com/css2?family=Roboto:ital,wght@1,700")
 }
 
 @Test func nudgeAdjustsAutoFitSize() {

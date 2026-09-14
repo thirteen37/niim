@@ -22,7 +22,7 @@ struct FontPicker: View {
                 if let error { Text(error).foregroundStyle(.red) }
                 ForEach(names, id: \.self) { name in
                     Button {
-                        choice = FontChoice(family: name, google: google, bold: choice.bold)
+                        choice = FontChoice(family: name, google: google)
                         dismiss()
                     } label: {
                         HStack {

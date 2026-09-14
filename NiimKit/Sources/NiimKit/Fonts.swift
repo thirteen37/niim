@@ -4,6 +4,41 @@ import Foundation
 // Fonts are fetched on first use and cached forever.
 // ponytail: no cache expiry; delete Caches/NiimFonts to pick up new Google Fonts or Font Awesome releases.
 
+/// A family's faces. Missing ones fall back to the nearest face and are synthesized when drawn (TextStyle).
+public struct FontFaces {
+    public var regular: CTFontDescriptor
+    public var bold: CTFontDescriptor?
+    public var italic: CTFontDescriptor?
+    public var boldItalic: CTFontDescriptor?
+
+    public init(regular: CTFontDescriptor, bold: CTFontDescriptor? = nil, italic: CTFontDescriptor? = nil, boldItalic: CTFontDescriptor? = nil) {
+        self.regular = regular
+        self.bold = bold
+        self.italic = italic
+        self.boldItalic = boldItalic
+    }
+
+    public static func system(family: String) -> FontFaces {
+        let d = CTFontDescriptorCreateWithAttributes([kCTFontFamilyNameAttribute as String: family] as CFDictionary)
+        func face(_ traits: CTFontSymbolicTraits) -> CTFontDescriptor? {
+            // Concurrent trait lookups from Swift Testing's parallel runner hang in the font service; one at a time is instant.
+            traitLookupLock.lock()
+            defer { traitLookupLock.unlock() }
+            return CTFontDescriptorCreateCopyWithSymbolicTraits(d, traits, traits)
+        }
+        return FontFaces(regular: d, bold: face(.traitBold), italic: face(.traitItalic), boldItalic: face([.traitBold, .traitItalic]))
+    }
+
+    func descriptor(bold wantBold: Bool, italic wantItalic: Bool) -> CTFontDescriptor {
+        switch (wantBold, wantItalic) {
+        case (false, false): regular
+        case (true, false): bold ?? regular
+        case (false, true): italic ?? regular
+        case (true, true): boldItalic ?? bold ?? italic ?? regular
+        }
+    }
+}
+
 public struct GoogleFamily: Hashable, Sendable, Identifiable {
     public let name: String
     public let category: String
@@ -16,17 +51,24 @@ public enum GoogleFonts {
         try families(fromMetadata: try await cached("google-fonts.json") { try await fetch(URL(string: "https://fonts.google.com/metadata/fonts")!) })
     }
 
-    /// Regular or bold (700) weight; falls back to regular when the family has no bold.
-    public static func font(family: String, bold: Bool) async throws -> CTFontDescriptor {
-        do {
-            return try descriptor(try await cached("gf-\(family)\(bold ? "-700" : "").font") {
-                let css = String(decoding: try await fetch(cssURL(family: family, bold: bold)), as: UTF8.self)
-                guard let url = fontURL(fromCSS: css) else { throw NiimError("No font file for \(family)") }
-                return try await fetch(url)
-            })
-        } catch where bold {
-            return try await font(family: family, bold: false)
-        }
+    /// Regular plus whichever bold/italic faces the family has.
+    /// ponytail: failed face requests aren't cached, so families lacking a face re-ask Google each time they're picked.
+    public static func faces(family: String) async throws -> FontFaces {
+        async let bold = try? font(family: family, bold: true, italic: false)
+        async let italic = try? font(family: family, bold: false, italic: true)
+        async let boldItalic = try? font(family: family, bold: true, italic: true)
+        return FontFaces(regular: try await font(family: family, bold: false, italic: false),
+                         bold: await bold, italic: await italic, boldItalic: await boldItalic)
+    }
+
+    /// One face; throws if the family doesn't have it.
+    public static func font(family: String, bold: Bool, italic: Bool) async throws -> CTFontDescriptor {
+        let suffix = (bold ? "-700" : "") + (italic ? "-italic" : "")
+        return try descriptor(try await cached("gf-\(family)\(suffix).font") {
+            let css = String(decoding: try await fetch(cssURL(family: family, bold: bold, italic: italic)), as: UTF8.self)
+            guard let url = fontURL(fromCSS: css) else { throw NiimError("No font file for \(family)") }
+            return try await fetch(url)
+        })
     }
 
     static func families(fromMetadata data: Data) throws -> [GoogleFamily] {
@@ -38,10 +80,16 @@ public enum GoogleFonts {
         }
     }
 
-    static func cssURL(family: String, bold: Bool) -> URL {
+    static func cssURL(family: String, bold: Bool, italic: Bool = false) -> URL {
         var c = URLComponents(string: "https://fonts.googleapis.com/css2")!
         let name = (family.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? family).replacingOccurrences(of: "%20", with: "+")
-        c.percentEncodedQuery = "family=\(name)\(bold ? ":wght@700" : "")"
+        let axes = switch (bold, italic) {
+        case (false, false): ""
+        case (true, false): ":wght@700"
+        case (false, true): ":ital@1"
+        case (true, true): ":ital,wght@1,700"
+        }
+        c.percentEncodedQuery = "family=\(name)\(axes)"
         return c.url!
     }
 
@@ -92,10 +140,7 @@ public func systemFontFamilies() -> [String] {
         .sorted()
 }
 
-public func systemFont(family: String, bold: Bool) -> CTFontDescriptor {
-    let d = CTFontDescriptorCreateWithAttributes([kCTFontFamilyNameAttribute as String: family] as CFDictionary)
-    return bold ? CTFontDescriptorCreateCopyWithSymbolicTraits(d, .traitBold, .traitBold) ?? d : d
-}
+private let traitLookupLock = NSLock()
 
 private let cacheDir: URL = {
     let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("NiimFonts")

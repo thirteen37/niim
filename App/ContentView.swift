@@ -5,19 +5,24 @@ import SwiftUI
 struct FontChoice: Hashable {
     var family = "Helvetica"
     var google = false
-    var bold = true
 }
 
 enum Pane: String, CaseIterable {
     case text = "Text", layout = "Layout"
 }
 
+enum TextFormat {
+    case bold, italic, underline
+}
+
 struct ContentView: View {
     static let maxSections = 6
 
+    @Environment(\.fontResolutionContext) private var fontContext
     @State private var printer = Printer()
     @State private var pane = Pane.text
-    @State private var texts = ["Hello"] + Array(repeating: "", count: maxSections - 1)
+    @State private var texts = [AttributedString("Hello")] + Array(repeating: AttributedString(), count: maxSections - 1)
+    @State private var selections = Array(repeating: AttributedTextSelection(), count: maxSections)
     @State private var sections = 1
     @State private var repeatText = true
     @State private var orientation = LabelOrientation.landscape
@@ -26,7 +31,7 @@ struct ContentView: View {
     @State private var sizeAdjust = 0.0
     @State private var copies = 1
     @State private var choice = FontChoice()
-    @State private var font: CTFontDescriptor?
+    @State private var faces: FontFaces?
     @State private var icons: [Icon] = []
     @State private var iconFonts: [CTFontDescriptor] = []
     @State private var emoji: CTFontDescriptor?
@@ -59,19 +64,18 @@ struct ContentView: View {
         }
         .task(id: choice) {
             do {
-                font = choice.google ? try await GoogleFonts.font(family: choice.family, bold: choice.bold)
-                    : systemFont(family: choice.family, bold: choice.bold)
+                faces = choice.google ? try await GoogleFonts.faces(family: choice.family) : .system(family: choice.family)
             } catch { self.error = error.localizedDescription }
         }
         .task {
             do {
                 (icons, iconFonts) = try await FontAwesome.load()
-                emoji = try await GoogleFonts.font(family: "Noto Emoji", bold: false)
+                emoji = try await GoogleFonts.font(family: "Noto Emoji", bold: false, italic: false)
             } catch { self.error = error.localizedDescription }
         }
         .sheet(isPresented: $showFonts) { FontPicker(choice: $choice) }
         .sheet(isPresented: $showIcons) {
-            IconPicker(icons: icons, fonts: iconFonts) { texts[repeatText ? 0 : min(lastField, sections - 1)].append($0) }
+            IconPicker(icons: icons, fonts: iconFonts) { texts[activeField].append(AttributedString(String($0))) }
         }
     }
 
@@ -122,20 +126,27 @@ struct ContentView: View {
                     if !repeatText, sections > 1 {
                         Text("Section \(i + 1)").font(.caption).foregroundStyle(.secondary)
                     }
-                    TextEditor(text: $texts[i])  // Return inserts a line break
+                    TextEditor(text: $texts[i], selection: $selections[i])  // rich text; Return inserts a line break
                         .font(fieldFont)
                         .frame(minHeight: 60)
                         .focused($focused, equals: i)
                 }
             }
-            Button("Insert Icon…") { showIcons = true }
-                .disabled(icons.isEmpty)
+            HStack {
+                // the app has no Format menu, so the editor's own ⌘B/I/U do nothing; route them through format()
+                Button { format(.bold) } label: { Image(systemName: "bold") }.accessibilityLabel("Bold").keyboardShortcut("b")
+                Button { format(.italic) } label: { Image(systemName: "italic") }.accessibilityLabel("Italic").keyboardShortcut("i")
+                Button { format(.underline) } label: { Image(systemName: "underline") }.accessibilityLabel("Underline").keyboardShortcut("u")
+                Spacer()
+                Button("Insert Icon…") { showIcons = true }
+                    .disabled(icons.isEmpty)
+            }
+            .buttonStyle(.bordered)
         }
         Section {
             LabeledContent("Font") {
                 Button(choice.family) { showFonts = true }
             }
-            Toggle("Bold", isOn: $choice.bold)
             Picker("Alignment", selection: $alignment) {
                 Image(systemName: "text.alignleft").accessibilityLabel("Left").tag(LabelAlignment.left)
                 Image(systemName: "text.aligncenter").accessibilityLabel("Center").tag(LabelAlignment.center)
@@ -163,6 +174,37 @@ struct ContentView: View {
         }
     }
 
+    private var activeField: Int { repeatText ? 0 : min(lastField, sections - 1) }
+
+    /// Toggles a style on the selection (or typing attributes) of the last-edited section.
+    private func format(_ f: TextFormat) {
+        let i = activeField
+        texts[i].transformAttributes(in: &selections[i]) { c in
+            switch f {
+            case .bold:
+                let font = c.font ?? .default
+                c.font = font.bold(!font.resolve(in: fontContext).isBold)
+            case .italic:
+                let font = c.font ?? .default
+                c.font = font.italic(!font.resolve(in: fontContext).isItalic)
+            case .underline:
+                c.underlineStyle = c.underlineStyle == nil ? .single : nil
+            }
+        }
+    }
+
+    /// Editor runs → label spans. Bold/italic come from the run's font, or Markdown-style intents.
+    private func spans(_ s: AttributedString) -> [TextRun] {
+        s.runs.map { run in
+            let font = (run.font ?? .default).resolve(in: fontContext)
+            let intent = run.inlinePresentationIntent ?? []
+            return TextRun(String(s[run.range].characters),
+                        bold: font.isBold || intent.contains(.stronglyEmphasized),
+                        italic: font.isItalic || intent.contains(.emphasized),
+                        underline: run.underlineStyle != nil)
+        }
+    }
+
     private var statusLine: String {
         var parts = [printer.status]
         if let label = printer.label { parts.append("\(label.lengthMm.formatted()) × \(label.widthMm.formatted()) mm") }
@@ -170,17 +212,17 @@ struct ContentView: View {
         return parts.joined(separator: " · ")
     }
 
-    private var sectionTexts: [String] {
-        repeatText ? Array(repeating: texts[0], count: sections) : Array(texts.prefix(sections))
+    private var sectionTextRuns: [[TextRun]] {
+        repeatText ? Array(repeating: spans(texts[0]), count: sections) : texts.prefix(sections).map(spans)
     }
 
     private var style: TextStyle {
-        TextStyle(font: font ?? systemFont(family: choice.family, bold: choice.bold), fallbacks: iconFonts, emoji: emoji,
+        TextStyle(faces: faces ?? .system(family: choice.family), fallbacks: iconFonts, emoji: emoji,
                   alignment: alignment, wrap: wrap, sizeAdjust: sizeAdjust)
     }
 
     private func bitmap(_ label: LabelSpec) -> Bitmap {
-        Bitmap.label(sectionTexts, spec: label, orientation: orientation, style: style)
+        Bitmap.label(sectionTextRuns, spec: label, orientation: orientation, style: style)
     }
 
     /// System font with Font Awesome as fallback, so inserted icons show in the field instead of boxes.
