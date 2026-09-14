@@ -2,7 +2,7 @@ import CoreText
 import NiimKit
 import SwiftUI
 
-struct FontChoice: Hashable {
+struct FontChoice: Hashable, Codable {
     var family = "Helvetica"
     var google = false
 }
