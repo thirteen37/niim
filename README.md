@@ -19,7 +19,7 @@ Not affiliated with NIIMBOT.
 - macOS 26 or iOS 26 (the app uses SwiftUI's rich text editor)
 - Xcode 26
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen): `brew install xcodegen`
-- An Apple developer team to sign with
+- An Apple developer team to sign with (and a Developer ID Application certificate for `make release`)
 - For the Python prototype only: [uv](https://docs.astral.sh/uv/)
 
 ## Setup
@@ -36,16 +36,26 @@ DEVELOPMENT_TEAM = YOUR_TEAM_ID
 
 | Command | What it does |
 |---|---|
-| `make deploy` | Release build (universal), replaces `/Applications/Niim.app` and launches it |
-| `make release` | Release build only, into `build/` |
-| `make dmg` | Release build packaged as `build/Niim-<version>.dmg`, with an Applications shortcut to drag onto |
-| `make publish` | Builds the DMG, tags `v<version>`, pushes, and creates a GitHub release with the DMG attached |
+| `make deploy` | Release build, replaces `/Applications/Niim.app` and launches it |
+| `make release` | Universal Release build, archived and exported with Developer ID signing into `build/export/` |
+| `make dmg` | That build packaged as a signed `build/Niim-<version>.dmg`, with an Applications shortcut to drag onto |
+| `make notarize` | Builds the DMG, submits it to Apple's notary service, and staples the ticket |
+| `make publish` | Checks for uncommitted changes, notarizes, tags `v<version>`, pushes, and creates a GitHub release with the DMG |
+| `make iphone` | Builds for iPhone, installs on the first paired iPhone (or `DEVICE=<name>`) and launches it |
 | `make test` | Runs the `NiimKit` unit tests |
 | `make clean` | Deletes `build/` |
 
-The version comes from `MARKETING_VERSION` in `project.yml`; bump it before `make publish`. Builds are signed with your Apple Development identity, so the DMG runs on your own Macs. Giving it to anyone else needs a Developer ID-signed, notarized build.
+The version comes from `MARKETING_VERSION` in `project.yml`; bump it before `make publish`.
 
-**iPhone:** run `xcodegen generate`, open `Niim.xcodeproj`, pick your iPhone and press Run. The phone needs Developer Mode on.
+**Notarization setup (once).** Create an app-specific password at [account.apple.com](https://account.apple.com) → Sign-In and Security → App-Specific Passwords, then store it in the keychain:
+
+```sh
+xcrun notarytool store-credentials niim-notary --apple-id <your Apple ID> --team-id <your team ID>
+```
+
+Use a different profile name with `make publish NOTARY_PROFILE=<name>`.
+
+**iPhone:** `make iphone` works over Wi-Fi once the phone is paired with Xcode and has Developer Mode on. Keep the phone unlocked while it launches. Or open `Niim.xcodeproj`, pick your iPhone and press Run.
 
 Allow Bluetooth when asked. The printer can only hold one connection, so disconnect it from the official app first.
 

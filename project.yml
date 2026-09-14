@@ -27,7 +27,8 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon  # from tools/make-icon.swift
         INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription: Niim connects to your Niimbot label printer over Bluetooth.
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        # macOS sandbox (ignored on iOS)
+        # macOS sandbox and hardened runtime, required for notarization (ignored on iOS)
+        ENABLE_HARDENED_RUNTIME: YES
         ENABLE_APP_SANDBOX: YES
         ENABLE_RESOURCE_ACCESS_BLUETOOTH: YES
         ENABLE_OUTGOING_NETWORK_CONNECTIONS: YES
