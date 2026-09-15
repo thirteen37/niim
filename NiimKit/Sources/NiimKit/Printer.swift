@@ -65,6 +65,7 @@ public final class Printer: NSObject {
             try await Task.sleep(for: .milliseconds(300))
         }
         _ = try await send(0xF3)  // print end
+        if let tag = try? await send(0x1A) { rfid = Rfid(tag) }  // the printer bumps the roll's used count; a failed re-read isn't a failed print
     }
 
     private func send(_ cmd: UInt8, _ data: Data = Data([1])) async throws -> Data {
