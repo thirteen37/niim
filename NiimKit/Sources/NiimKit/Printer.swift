@@ -46,7 +46,7 @@ public final class Printer: NSObject {
         defer { isBusy = false }
         _ = try await send(0xC1)  // connect
         _ = try await send(0x21, Data([UInt8(density)]))  // 1-3
-        _ = try await send(0x23, Data([1]))  // label type: with gaps
+        _ = try await send(0x23, Data([rfid?.labelType ?? 1]))  // label type from the roll's tag (1 gaps, 5 transparent); gaps if none
         _ = try await send(0x01)  // print start
         _ = try await send(0x20)  // print clear
         _ = try await send(0x03)  // page start

@@ -18,6 +18,7 @@ enum TextFormat: String, CaseIterable {
 struct ContentView: View {
     static let maxSections = 6
     static let estimate = LabelSpec(lengthMm: 40, widthMm: 12)  // previewed until the printer reports its roll
+    static let cableTailWidthMm = 7.0  // not in NIIMBOT's database; from their drawing of the T12.5*74+35 roll
 
     @Environment(\.fontResolutionContext) private var fontContext
     @State private var printer = Printer()
@@ -36,6 +37,7 @@ struct ContentView: View {
     @State private var icons: [Icon] = []
     @State private var iconFonts: [CTFontDescriptor] = []
     @State private var emoji: CTFontDescriptor?
+    @State private var material: String?  // the loaded roll's material, in the user's language
     @State private var showFonts = false
     @State private var showIcons = false
     @State private var error: String?
@@ -53,6 +55,13 @@ struct ContentView: View {
         .onAppear { printer.connect() }
         .onChange(of: focused) { _, field in
             if let field { lastField = field }
+        }
+        .onChange(of: printer.label) { _, label in
+            if let n = label?.areas.count, n > 0 { sections = min(n, Self.maxSections) }  // start from the roll's own text areas
+        }
+        .task(id: printer.label?.material) {
+            material = nil
+            if let id = printer.label?.material { material = try? await Materials.name(textId: id) }  // offline or unknown: just leave it out
         }
         .task(id: choice) {
             do {
@@ -84,7 +93,7 @@ struct ContentView: View {
                     .background(Theme.washActive, in: .capsule)
                     .overlay(Capsule().strokeBorder(Theme.washBorder))
                     VStack(spacing: 9) {
-                        previewCard("Label preview")
+                        previewCard()
                         previewNote
                     }
                     .frame(maxWidth: 640)
@@ -142,7 +151,7 @@ struct ContentView: View {
             .overlay(alignment: .bottom) { Theme.barLine.frame(height: 1) }
             ScrollView {
                 VStack(spacing: 16) {
-                    previewCard("Preview", note: true)
+                    previewCard(note: true)
                     Segmented(selection: $pane, tab: true)
                     panes
                 }
@@ -168,26 +177,47 @@ struct ContentView: View {
     }
 
     /// The real bitmap inside a dashed tape edge at the label's true proportions.
-    private func previewCard(_ title: String, note: Bool = false) -> some View {
+    private func previewCard(note: Bool = false) -> some View {
         let spec = printer.label ?? Self.estimate
         let (l, w) = (spec.lengthMm.formatted(), spec.widthMm.formatted())
         let portrait = orientation == .portrait
         return VStack(alignment: .leading, spacing: pt(12, 11)) {
             HStack {
-                Text(title)
+                Text(material ?? "").lineLimit(1)  // the roll's material, once known
                 Spacer()
-                Text("\(orientation.rawValue) · \(portrait ? "\(w) × \(l)" : "\(l) × \(w)") mm")
+                Text("\(orientation.rawValue) · \(portrait ? "\(w) × \(l)" : "\(l) × \(w)") mm"
+                     + (spec.tailMm > 0 ? " + \(spec.tailMm.formatted()) mm tail" : ""))
             }
             .font(.system(size: pt(11, 10.5), weight: .semibold)).textCase(.uppercase).tracking(1).foregroundStyle(Theme.tertiary)
             if let image = bitmap(spec).cgImage {
-                Image(decorative: image, scale: 1)
-                    .interpolation(.none)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .clipShape(.rect(cornerRadius: pt(12, 13)))
-                    .overlay(RoundedRectangle(cornerRadius: pt(12, 13)).strokeBorder(Theme.disabled, style: StrokeStyle(lineWidth: 1.5, dash: [5, 3])))
-                    .frame(height: portrait ? pt(300, 260) : nil)
-                    .frame(maxWidth: .infinity)
+                let feed = (spec.lengthMm + spec.tailMm) / spec.lengthMm  // a cable tail extends the label along the feed
+                GeometryReader { geo in
+                    let mm = (portrait ? geo.size.height : geo.size.width) / (spec.lengthMm + spec.tailMm)  // points per mm along the feed
+                    let tailAcross = (portrait ? geo.size.width : geo.size.height) * Self.cableTailWidthMm / spec.widthMm
+                    let radius = min(pt(12, 13), 1.2 * mm)
+                    let dashed = StrokeStyle(lineWidth: 1.5, dash: [5, 3])
+                    let panels = Panels(folds: spec.foldsMm.map { $0 / spec.lengthMm }, vertical: portrait, radius: radius)
+                    (portrait ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))) {
+                        Image(decorative: image, scale: 1)
+                            .interpolation(.none)
+                            .resizable()
+                            .blendMode(printer.rfid?.labelType == 5 ? .multiply : .normal)  // transparent roll: blank areas show the hatch
+                            .background { if printer.rfid?.labelType == 5 { Hatch() } }
+                            .compositingGroup()
+                            .clipShape(panels)
+                            .overlay(panels.stroke(Theme.disabled, style: dashed))
+                        if spec.tailMm > 0 {  // narrower, centred and unprintable, so drawn empty
+                            RoundedRectangle(cornerRadius: radius / 2)
+                                .fill(Theme.track)
+                                .overlay(RoundedRectangle(cornerRadius: radius / 2).strokeBorder(Theme.disabled, style: dashed))
+                                .frame(width: portrait ? tailAcross : spec.tailMm * mm, height: portrait ? spec.tailMm * mm : tailAcross)
+                        }
+                    }
+                }
+                .aspectRatio(portrait ? CGFloat(image.width) / (CGFloat(image.height) * feed)
+                                      : CGFloat(image.width) * feed / CGFloat(image.height), contentMode: .fit)
+                .frame(height: portrait ? pt(300, 260) : nil)
+                .frame(maxWidth: .infinity)
             }
             if note { previewNote }
         }
@@ -387,5 +417,39 @@ struct ContentView: View {
         let sys = CTFontCreateUIFontForLanguage(.system, pt(14, 17), nil)!
         let desc = CTFontDescriptorCreateCopyWithAttributes(CTFontCopyFontDescriptor(sys), [kCTFontCascadeListAttribute as String: iconFonts] as CFDictionary)
         return Font(CTFontCreateWithFontDescriptor(desc, CTFontGetSize(sys), nil))
+    }
+}
+
+/// The label's die-cut panels, split at its folds (fractions along the feed), each with rounded corners.
+private struct Panels: Shape {
+    let folds: [Double]
+    let vertical: Bool
+    let radius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let edges = [0] + folds + [1]
+        var path = Path()
+        for (a, b) in zip(edges, edges.dropFirst()) {
+            let panel = vertical
+                ? CGRect(x: rect.minX, y: rect.minY + a * rect.height, width: rect.width, height: (b - a) * rect.height)
+                : CGRect(x: rect.minX + a * rect.width, y: rect.minY, width: (b - a) * rect.width, height: rect.height)
+            path.addRoundedRect(in: panel.insetBy(dx: 0.75, dy: 0.75), cornerSize: CGSize(width: radius, height: radius))  // keeps the stroke inside
+        }
+        return path
+    }
+}
+
+/// Diagonal stripes seen through the blank areas of a transparent roll's preview.
+private struct Hatch: View {
+    var body: some View {
+        Canvas { ctx, size in
+            var stripes = Path()
+            for x in stride(from: -size.height, through: size.width, by: 14) {
+                stripes.move(to: CGPoint(x: x, y: size.height))
+                stripes.addLine(to: CGPoint(x: x + size.height, y: 0))
+            }
+            ctx.stroke(stripes, with: .color(Theme.track), lineWidth: 7)
+        }
+        .background(Theme.inspector)
     }
 }

@@ -62,3 +62,40 @@ private func hex(_ s: String) -> Data {
     #expect(label == LabelSpec(lengthMm: 30, widthMm: 15))
     #expect(label.rows == 240)  // 8 px/mm along the feed; printable width is always the 96 px head
 }
+
+// "T12.5*74+35-60白线缆": two text areas either side of a fold at 37 mm, then a 35 mm unprintable cable tail.
+private let cableAreas = [CGRect(x: 2.34, y: 1.375, width: 32.68, height: 9.875), CGRect(x: 38.97, y: 1.375, width: 32.68, height: 9.875)]
+
+@Test func parsesCableLabelTailAndTextAreas() throws {
+    let json = #"{"code":1,"data":{"width":74,"height":12.5,"rotate":90,"paperType":1,"isCable":true,"cableLength":35,"cableDirection":1,"consumableTypeTextId":"app100000909","inputAreas":[{"x":2.34,"y":1.375,"w":32.68,"h":9.875,"type":"text"},{"x":38.97,"y":1.375,"w":32.68,"h":9.875,"type":"text"}]}}"#
+    let label = try LabelSpec.fromLookup(Data(json.utf8))
+    #expect(label == LabelSpec(lengthMm: 74, widthMm: 12.5, tailMm: 35, areas: cableAreas, material: "app100000909"))
+    #expect(label.foldsMm.count == 1 && abs(label.foldsMm[0] - 37) < 0.01)  // midway between the two areas
+}
+
+@Test func sectionsFollowTheLabelsTextAreas() {
+    let spec = LabelSpec(lengthMm: 74, widthMm: 12.5, areas: cableAreas)  // areas end at 280 px, next starts at 312 px
+    func inked(_ bmp: Bitmap, along xs: Range<Int>) -> Bool {
+        bmp.width > bmp.height
+            ? xs.contains { x in (0..<bmp.height).contains { bmp[x, $0] } }
+            : xs.contains { y in (0..<bmp.width).contains { bmp[$0, y] } }
+    }
+    let land = Bitmap.label(["I", "I"], spec: spec, orientation: .landscape, style: TextStyle())
+    #expect(inked(land, along: 19..<280) && !inked(land, along: 280..<312) && inked(land, along: 312..<573))
+    let port = Bitmap.label(["I", ""], spec: spec, orientation: .portrait, style: TextStyle())
+    #expect(inked(port, along: 19..<280) && !inked(port, along: 280..<592))  // first area at the start end, on top
+    let one = Bitmap.label(["I"], spec: spec, orientation: .landscape, style: TextStyle())
+    #expect(inked(one, along: 280..<312))  // section count doesn't match the areas: even split, text centred on the fold
+}
+
+@Test func namesMaterialsFromLanguagePacks() throws {
+    let pack = { (json: String) in Data(json.utf8) }
+    let ja = pack(#"{"version":1,"lang":{"app100000062":{"value":"透明感熱紙","desc":"透明热敏"},"app9":{"value":"","desc":"热敏"}}}"#)
+    let en = pack(#"{"version":1,"lang":{"app100000062":{"value":"Transparent Thermal Paper","desc":"透明热敏"},"app9":{"value":"Thermal","desc":"热敏"}}}"#)
+    #expect(try Materials.name("app100000062", packs: [ja, en]) == "透明感熱紙")
+    #expect(try Materials.name("app9", packs: [ja, en]) == "Thermal")  // untranslated: English
+    #expect(try Materials.name("app9", packs: [ja]) == "热敏")  // nothing translated: NIIMBOT's Chinese description
+    #expect(try Materials.name("missing", packs: [ja, en]) == nil)
+    #expect(Materials.pack(for: "ja-JP") == "ja" && Materials.pack(for: "zh-Hant-TW") == "zh-cn-t"
+        && Materials.pack(for: "zh-Hans-SG") == "zh-cn" && Materials.pack(for: "id-ID") == "en")
+}

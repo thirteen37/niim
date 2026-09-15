@@ -148,7 +148,7 @@ private let cacheDir: URL = {
     return dir
 }()
 
-private func cached(_ name: String, _ load: () async throws -> Data) async throws -> Data {
+func cached(_ name: String, _ load: () async throws -> Data) async throws -> Data {
     let file = cacheDir.appendingPathComponent(name)
     if let data = try? Data(contentsOf: file) { return data }
     let data = try await load()
@@ -156,7 +156,7 @@ private func cached(_ name: String, _ load: () async throws -> Data) async throw
     return data
 }
 
-private func fetch(_ url: URL) async throws -> Data {
+func fetch(_ url: URL) async throws -> Data {
     let (data, response) = try await URLSession.shared.data(from: url)
     guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw NiimError("Download failed: \(url.lastPathComponent)") }
     return data

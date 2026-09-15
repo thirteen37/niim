@@ -41,14 +41,19 @@ public struct Bitmap: Equatable, Sendable {
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w,
                                   space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)
         else { return out }
+        let canvas = CGRect(x: 0, y: 0, width: w, height: h)
         ctx.setFillColor(gray: 1, alpha: 1)
-        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.fill(canvas)
 
+        // one section per template text area: use the areas, kept inside the margin; otherwise split evenly
+        let areas = spec.areas.count == sections.count ? spec.areas.map { pixels($0, spec: spec, orientation: orientation) } : nil
         for (i, spans) in sections.enumerated() {
-            let section = orientation == .landscape
+            let section = areas?[i] ?? (orientation == .landscape
                 ? CGRect(x: len * i / n, y: 0, width: len / n, height: head)
-                : CGRect(x: 0, y: len - (i + 1) * len / n, width: head, height: len / n)  // CG is y-up; section 0 on top
-            let box = section.insetBy(dx: CGFloat(margin), dy: CGFloat(margin))
+                : CGRect(x: 0, y: len - (i + 1) * len / n, width: head, height: len / n))  // CG is y-up; section 0 on top
+            let box = areas == nil ? section.insetBy(dx: CGFloat(margin), dy: CGFloat(margin))
+                : section.intersection(canvas.insetBy(dx: CGFloat(margin), dy: CGFloat(margin)))
+            guard !box.isEmpty else { continue }
             let layout = TextLayout.fit(spans, style: style, in: box.size)
             guard let frame = layout.frame else { continue }
             ctx.saveGState()
@@ -61,6 +66,15 @@ public struct Bitmap: Equatable, Sendable {
         guard let data = ctx.data?.assumingMemoryBound(to: UInt8.self) else { return out }
         for i in 0..<w * h { out.pixels[i] = data[i] < 128 }  // buffer row 0 is the top
         return out
+    }
+
+    /// A template text area (mm, x along the label, y down from its top edge) → canvas pixels, CG y-up.
+    private static func pixels(_ mm: CGRect, spec: LabelSpec, orientation: LabelOrientation) -> CGRect {
+        let px: CGFloat = 8, len = CGFloat(spec.rows), head = CGFloat(printheadPx)
+        let along = mm.minX * px, across = (mm.minY - (spec.widthMm - head / px) / 2) * px  // the head prints the middle 12 mm
+        return orientation == .landscape
+            ? CGRect(x: along, y: head - across - mm.height * px, width: mm.width * px, height: mm.height * px)
+            : CGRect(x: head - across - mm.height * px, y: len - along - mm.width * px, width: mm.height * px, height: mm.width * px)  // rotated CW
     }
 
     public var cgImage: CGImage? {

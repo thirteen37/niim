@@ -18,6 +18,7 @@ Not affiliated with NIIMBOT.
 - **Icons and emoji.** A searchable Font Awesome 7 Free icon picker. Emoji print with the monochrome Noto Emoji font, which comes out far cleaner on a thermal printer than color emoji.
 - **Layouts.** Landscape or portrait, split into 1–6 sections that repeat one text (n-up) or each get their own.
 - **Live preview** of exactly what will print, at the label's true proportions (a 40 × 12 mm estimate until the printer reports its roll), and copies.
+- **Knows the roll.** Shows its material in your language (e.g. "Transparent Thermal Paper"), draws transparent rolls see-through and cable labels with their fold and tail, and starts with one section per text area the roll defines.
 
 ## Requirements
 
@@ -103,7 +104,7 @@ Based on [niimbluelib](https://github.com/MultiMote/niimbluelib)'s `D110PrintTas
 |---|---|---|---|
 | Connect | `C1` | `01` | `C2` |
 | Density | `21` | 1–3 | `31` |
-| Label type | `23` | `01` (gaps) | `33` |
+| Label type | `23` | the roll's type from its RFID tag: `01` gaps, `05` transparent (niimbluelib's `LabelType`) | `33` |
 | Print start | `01` | `01` | `02` |
 | Print clear | `20` | `01` | `30` |
 | Page start | `03` | `01` | `04` |
@@ -123,6 +124,14 @@ Poll status every 300 ms until the page counter equals the number of copies and 
 **Info.** `40` + info type replies with `40` + type: `08` model ID, `09` firmware, `0A` battery, `0B` serial. `1A` reads the roll's RFID: 8-byte UUID, length-prefixed barcode, length-prefixed serial, total labels u16, used u16, label type.
 
 **Label size.** The RFID tag has no dimensions. Look them up by barcode: `POST https://print.niimbot.com/api/template/getCloudTemplateByOneCode` with body `{"oneCode": "<barcode>"}` and header `niimbot-user-agent: AppVersionName/999.0.0`. `data.width` and `data.height` are in mm.
+
+The reply carries more than the size:
+
+- **Cable labels** have `isCable: true`, `cableLength` (the unprintable tail in mm, not included in `width` × `height`) and `cableDirection`. On a T12.5\*74+35 roll, `1` means the tail comes after the print area.
+- **`inputAreas`** lists the template's text areas as `x`, `y`, `w`, `h` in mm, in the same frame as `width` × `height`. The cable roll has two, one either side of a fold. A 35 × 13 mm luminous roll has one covering almost the whole label.
+- **`paperType`** matches the tag's label type (`1` for gaps, `5` for transparent).
+- **`consumableType`** is the material code and **`consumableTypeTextId`** its key in NIIMBOT's language packs, `https://oss-print.niimbot.com/public_resources/static_resources/languagePack/<lang>.json` (en, ja, ko, de, fr, es, it, pt, ru, zh-cn, zh-cn-t, th, vi, ar). The name is `lang.<id>.value`; it's empty where untranslated, and `desc` holds the Chinese original. For example 19 is "Transparent Thermal Paper", 30 "Thermal paper - Wear-Resistant", 52 "Fluorescent Paper".
+- **No color field.** Color only appears inside some material names ("Thermal Paper - Red Text"). `elements[].elementColor` belongs to an attached sample design, not the roll.
 
 **Calibration.** The D110 loses about 1 mm at the start of each label, so the renderer keeps a 12 px margin.
 
