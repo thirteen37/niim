@@ -134,6 +134,7 @@ Poll status every 300 ms until the page counter equals the number of copies and 
 - **Icon source:** CoreGraphics treats an untagged palette PNG as Display P3 and oversaturates it when converting to sRGB; `make-icon.swift` reads the raw palette instead.
 - **Menu bar name:** a generated Info.plist always sets `CFBundleName` to the product name ("Niim"), overriding a merged `INFOPLIST_FILE`, and there's no `INFOPLIST_KEY_CFBundleName`. A post-build script sets it to NIIM instead. It lists the Info.plist as an input so it's ordered before code signing; without that, a build came out with an invalid signature.
 - **Initial focus on macOS:** `.defaultFocus` loses to the first focusable control (the Text/Layout tabs). Setting the `@FocusState` from the text editor's `.task` works.
+- **Pulsing dot:** `phaseAnimator` never stops animating, and it also animated the dot's position when the layout moved, so the status dot slid slowly whenever the preview changed size. `.symbolEffect(.breathe)` pulses without touching layout.
 - **Simulator:** it has no Bluetooth, so the app shows "Bluetooth unavailable" and can't connect. Use a real device to print.
 
 ## Credits

@@ -29,7 +29,7 @@ dmg: release
 	mkdir -p build/dmg
 	ditto $(APP) build/dmg/Niim.app
 	ln -s /Applications build/dmg/Applications
-	hdiutil create -volname "Niim $(VERSION)" -srcfolder build/dmg -format UDZO -ov $(DMG)
+	hdiutil create -volname "NIIM $(VERSION)" -srcfolder build/dmg -format UDZO -ov $(DMG)
 	codesign --sign "Developer ID Application" --timestamp $(DMG)
 
 notarize: dmg
@@ -48,9 +48,9 @@ clean-tree:
 
 # Tags v$(VERSION) (from MARKETING_VERSION in project.yml) and publishes the notarized DMG as a GitHub release.
 publish: clean-tree notarize
-	git tag -a v$(VERSION) -m "Niim $(VERSION)"
+	git tag -a v$(VERSION) -m "NIIM $(VERSION)"
 	git push origin main v$(VERSION)
-	gh release create v$(VERSION) $(DMG) --title "Niim $(VERSION)" --generate-notes
+	gh release create v$(VERSION) $(DMG) --title "NIIM $(VERSION)" --generate-notes
 
 iphone: project
 	@test -n "$(DEVICE)" || { echo "No paired iPhone found; pass DEVICE=<name>"; exit 1; }
