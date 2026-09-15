@@ -1,8 +1,13 @@
-# Niim
+# NIIM
 
 A native iPhone and Mac app for the **Niimbot D110** label printer, talking to it directly over Bluetooth LE instead of through the official app.
 
 Not affiliated with NIIMBOT.
+
+<p align="center">
+  <img src="docs/screenshot-mac.jpg" alt="NIIM on macOS" height="420">
+  <img src="docs/screenshot-iphone.png" alt="NIIM on iPhone" height="420">
+</p>
 
 ## Features
 
@@ -12,7 +17,7 @@ Not affiliated with NIIMBOT.
 - **Fonts.** Any system font or Google Fonts family (downloaded on first use and cached), with recently used fonts at the top of the picker.
 - **Icons and emoji.** A searchable Font Awesome 7 Free icon picker. Emoji print with the monochrome Noto Emoji font, which comes out far cleaner on a thermal printer than color emoji.
 - **Layouts.** Landscape or portrait, split into 1–6 sections that repeat one text (n-up) or each get their own.
-- **Copies,** with a live preview of exactly what will print.
+- **Live preview** of exactly what will print, at the label's true proportions (a 40 × 12 mm estimate until the printer reports its roll), and copies.
 
 ## Requirements
 
@@ -76,8 +81,9 @@ macOS grants Bluetooth to the app that launched the process. Run it from a termi
 | Path | Contents |
 |---|---|
 | `NiimKit/` | Swift package shared by both apps: packet codec, bitmap rows, RFID parsing, label lookup, text layout, fonts, and the CoreBluetooth `Printer` |
-| `App/` | SwiftUI app: `ContentView.swift` (preview, text and layout tabs), `Pickers.swift` (font and icon pickers) |
-| `project.yml` | XcodeGen spec for the iOS + macOS app target |
+| `App/` | SwiftUI app: `ContentView.swift` (preview, text and layout tabs), `Theme.swift` (colors and styled controls), `Pickers.swift` (font and icon pickers) |
+| `project.yml` | XcodeGen spec for the iOS + macOS app target, including the build step that names the macOS menu bar NIIM |
+| `docs/` | README screenshots |
 | `Config/` | `Signing.xcconfig`, which includes your untracked `Local.xcconfig` |
 | `tools/make-icon.swift` | Regenerates the app icon from `tools/niim-logo.png` |
 | `niim.py` | Python/bleak protocol prototype |
@@ -126,6 +132,9 @@ Poll status every 300 ms until the page counter equals the number of copies and 
 - **macOS sheets:** a sheet sizes itself to its content, and a `List` has no ideal height, so it collapses. Give the sheet an ideal size.
 - **Swift Testing:** concurrent `CTFontDescriptorCreateCopyWithSymbolicTraits` calls from the parallel test runner hang in the font service, so `NiimKit` serializes them with a lock.
 - **Icon source:** CoreGraphics treats an untagged palette PNG as Display P3 and oversaturates it when converting to sRGB; `make-icon.swift` reads the raw palette instead.
+- **Menu bar name:** a generated Info.plist always sets `CFBundleName` to the product name ("Niim"), overriding a merged `INFOPLIST_FILE`, and there's no `INFOPLIST_KEY_CFBundleName`. A post-build script sets it to NIIM instead. It lists the Info.plist as an input so it's ordered before code signing; without that, a build came out with an invalid signature.
+- **Initial focus on macOS:** `.defaultFocus` loses to the first focusable control (the Text/Layout tabs). Setting the `@FocusState` from the text editor's `.task` works.
+- **Simulator:** it has no Bluetooth, so the app shows "Bluetooth unavailable" and can't connect. Use a real device to print.
 
 ## Credits
 

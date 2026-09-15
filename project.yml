@@ -25,10 +25,17 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         GENERATE_INFOPLIST_FILE: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon  # from tools/make-icon.swift
-        INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription: Niim connects to your Niimbot label printer over Bluetooth.
+        INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription: NIIM connects to your Niimbot label printer over Bluetooth.
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         # macOS sandbox and hardened runtime, required for notarization (ignored on iOS)
         ENABLE_HARDENED_RUNTIME: YES
         ENABLE_APP_SANDBOX: YES
         ENABLE_RESOURCE_ACCESS_BLUETOOTH: YES
         ENABLE_OUTGOING_NETWORK_CONNECTIONS: YES
+    postBuildScripts:  # generated plists always set CFBundleName to PRODUCT_NAME, so rename after; runs before signing
+      - name: Name the macOS menu bar NIIM
+        basedOnDependencyAnalysis: false
+        inputFiles:  # orders it after the generated Info.plist is written
+          - $(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)
+        script: |
+          if [ "$PLATFORM_NAME" = macosx ]; then /usr/libexec/PlistBuddy -c "Set :CFBundleName NIIM" "$TARGET_BUILD_DIR/$INFOPLIST_PATH"; fi
