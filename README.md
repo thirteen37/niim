@@ -2,6 +2,8 @@
 
 A native iPhone and Mac app for the **Niimbot D110** label printer, talking to it directly over Bluetooth LE instead of through the official app.
 
+Simple labels, made simply: type and print. No dragging, no resizing, no canvas.
+
 Not affiliated with NIIMBOT.
 
 <p align="center">
@@ -19,6 +21,14 @@ Not affiliated with NIIMBOT.
 - **Layouts.** Landscape or portrait, split into 1–6 sections that repeat one text (n-up) or each get their own.
 - **Live preview** of exactly what will print, at the label's true proportions (a 40 × 12 mm estimate until the printer reports its roll), and copies.
 - **Knows the roll.** Shows its material in your language (e.g. "Transparent Thermal Paper"), draws transparent rolls see-through and cable labels with their fold and tail, and starts with one section per text area the roll defines.
+
+## Scope
+
+Most labels are a few words on a small piece of tape. NIIM is built for that: pick a layout, type, print. The app sizes and places the text for you, so there's nothing to drag and nothing to line up.
+
+That's a deliberate ceiling, not a missing feature. It will never grow free placement of individual objects, or mixed fonts and sizes within a label. If you need a design canvas, use the official app.
+
+**Roadmap:** QR codes and barcodes.
 
 ## Requirements
 
