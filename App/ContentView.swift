@@ -145,6 +145,10 @@ struct ContentView: View {
                 pulseDot(6)
                 Text(printer.status).font(.system(size: 11.5)).foregroundStyle(Theme.tertiary)
                 Spacer()
+                #if os(iOS)  // the Mac has NIIM → About NIIM
+                Text("v" + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""))
+                    .font(.system(size: 11.5)).foregroundStyle(Theme.caption)
+                #endif
             }
             .padding(.horizontal, 18).padding(.vertical, 8)
             .background(Theme.stage)
