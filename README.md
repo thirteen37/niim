@@ -13,7 +13,7 @@ Not affiliated with NIIMBOT.
 
 ## Features
 
-- **Connects on launch.** Reads the loaded roll's RFID tag and looks up its size in Niimbot's public label database, so there's nothing to configure. The tag is read again after every print, so the labels-left count stays current.
+- **Connects on launch.** Reads the loaded roll's RFID tag and looks up its size in Niimbot's public label database, so there's nothing to configure. The tag is re-read every few seconds, so a swapped roll and the labels-left count stay current. A printer that drops off is searched for again automatically.
 - **Text that fits.** Each section's text is sized as large as it fits, wrapping between words (or only at your own line breaks). Nudge the size up or down, and align left, center or right.
 - **Rich text.** Bold, italic and underline per word, with the B / I / U buttons or ⌘B / ⌘I / ⌘U. Fonts without a real bold or italic face get a synthesized one.
 - **Fonts.** Any system font or Google Fonts family (downloaded on first use and cached), with recently used fonts at the top of the picker.

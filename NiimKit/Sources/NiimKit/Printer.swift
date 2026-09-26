@@ -28,11 +28,14 @@ public final class Printer: NSObject {
     @ObservationIgnored private var decoder = PacketDecoder()
     @ObservationIgnored private var waiter: (id: Int, want: UInt8, cont: CheckedContinuation<Data, Error>)?
     @ObservationIgnored private var nextID = 0
+    @ObservationIgnored private var poll: Task<Void, Never>?
 
     public override init() { super.init() }
 
+    /// Also the way out of any half-open state: a connected D110 doesn't advertise, so drop the old link before scanning.
     public func connect() {
-        status = "Searching…"
+        if let peripheral { central?.cancelPeripheralConnection(peripheral) }
+        disconnected("Searching…")
         if let central {
             if central.state == .poweredOn { central.scanForPeripherals(withServices: nil) }
         } else {
@@ -64,14 +67,14 @@ public final class Printer: NSObject {
             if s.count >= 4, Int(s[0]) << 8 | Int(s[1]) >= quantity, s[2] == 100, s[3] == 100 { break }
             try await Task.sleep(for: .milliseconds(300))
         }
-        _ = try await send(0xF3)  // print end
-        if let tag = try? await send(0x1A) { rfid = Rfid(tag) }  // the printer bumps the roll's used count; a failed re-read isn't a failed print
+        _ = try await send(0xF3)  // print end; the poll picks up the roll's bumped used count
     }
 
     private func send(_ cmd: UInt8, _ data: Data = Data([1])) async throws -> Data {
         guard let peripheral, let char else { throw NiimError("Not connected") }
         let want = cmd == 0x40 ? 0x40 &+ data[data.startIndex] : responses[cmd]!
         return try await withCheckedThrowingContinuation { cont in
+            fail(NiimError("Superseded"))  // one reply slot: a poll in flight when a print starts must not hang forever
             nextID += 1
             let id = nextID
             waiter = (id, want, cont)
@@ -101,18 +104,32 @@ public final class Printer: NSObject {
         w?.cont.resume(throwing: error)
     }
 
-    private func loadInfo() async {
-        do {
-            rfid = Rfid(try await send(0x1A))
-            isReady = true
-            status = "Connected"
-            if let rfid { label = try await LabelSpec.lookup(barcode: rfid.barcode) }
-        } catch {
-            status = error.localizedDescription
+    /// The printer doesn't announce roll changes, so read the tag every few seconds while idle.
+    private func startPolling() {
+        poll?.cancel()
+        poll = Task {
+            while !Task.isCancelled {
+                if !isBusy { await refresh() }
+                try? await Task.sleep(for: .seconds(3))
+            }
         }
     }
 
+    private func refresh() async {
+        guard let tag = try? await send(0x1A) else { return }  // no reply: keep what we know; a real disconnect comes from CoreBluetooth
+        let new = Rfid(tag)
+        if new?.barcode != rfid?.barcode { label = nil }  // another roll (or none): the old size no longer applies
+        rfid = new
+        guard let new else { status = "No roll"; return }
+        if label == nil {  // retried each poll until it succeeds, e.g. after being offline
+            do { label = try await LabelSpec.lookup(barcode: new.barcode) } catch { status = error.localizedDescription; return }
+        }
+        status = "Connected"
+    }
+
+    /// Keeps `label` and `rfid` so the preview holds until the next tag read says otherwise.
     private func disconnected(_ message: String) {
+        poll?.cancel()
         peripheral = nil
         char = nil
         isReady = false
@@ -124,7 +141,8 @@ public final class Printer: NSObject {
 extension Printer: CBCentralManagerDelegate, CBPeripheralDelegate {
     nonisolated public func centralManagerDidUpdateState(_ central: CBCentralManager) {
         MainActor.assumeIsolated {
-            if central.state == .poweredOn { central.scanForPeripherals(withServices: nil) } else { status = "Bluetooth unavailable" }
+            // Bluetooth going off drops the link without a disconnect callback
+            if central.state == .poweredOn { central.scanForPeripherals(withServices: nil) } else { disconnected("Bluetooth unavailable") }
         }
     }
 
@@ -145,11 +163,13 @@ extension Printer: CBCentralManagerDelegate, CBPeripheralDelegate {
     }
 
     nonisolated public func centralManager(_ central: CBCentralManager, didFailToConnect p: CBPeripheral, error: Error?) {
-        MainActor.assumeIsolated { disconnected("Couldn't connect") }
+        MainActor.assumeIsolated { if p == peripheral { connect() } }
     }
 
+    // Only the current printer: connect() cancels the old link, whose late callback must not tear down the new one.
+    // Searching again right away is what brings it back once it's switched on or in range.
     nonisolated public func centralManager(_ central: CBCentralManager, didDisconnectPeripheral p: CBPeripheral, error: Error?) {
-        MainActor.assumeIsolated { disconnected("Disconnected") }
+        MainActor.assumeIsolated { if p == peripheral { connect() } }
     }
 
     nonisolated public func peripheral(_ p: CBPeripheral, didDiscoverServices error: Error?) {
@@ -163,7 +183,11 @@ extension Printer: CBCentralManagerDelegate, CBPeripheralDelegate {
     }
 
     nonisolated public func peripheral(_ p: CBPeripheral, didUpdateNotificationStateFor ch: CBCharacteristic, error: Error?) {
-        MainActor.assumeIsolated { _ = Task { await loadInfo() } }
+        MainActor.assumeIsolated {
+            isReady = true
+            status = "Connected"
+            startPolling()
+        }
     }
 
     nonisolated public func peripheral(_ p: CBPeripheral, didUpdateValueFor ch: CBCharacteristic, error: Error?) {

@@ -246,7 +246,7 @@ struct ContentView: View {
             Text(printer.isBusy ? "Printing…" : "Print").frame(maxWidth: fullWidth ? .infinity : nil)
         }
         .buttonStyle(FilledButton())
-        .disabled(printer.label == nil || printer.isBusy)
+        .disabled(!printer.isReady || printer.label == nil || printer.isBusy)  // the label outlives a disconnect, for the preview
     }
 
     @ViewBuilder private var errorLine: some View {
